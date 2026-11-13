@@ -1,0 +1,10 @@
+.env
+.env.*
+!.env.example
+sessions/
+.venv/
+.venv-*/
+__pycache__/
+*.py[cod]
+.shad_state/
+node_modules/
