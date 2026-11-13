@@ -1,0 +1,85 @@
+name: Shad Network Diagnostic
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  network-check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Test DNS, TCP 443, and TLS to Shad hosts
+        shell: bash
+        run: |
+          python - <<'PY'
+          import socket
+          import ssl
+          from datetime import datetime, timezone
+
+          hosts = [
+              "shadmessenger57.iranlms.ir",
+              "shadmessenger60.iranlms.ir",
+              "shadmessenger145.iranlms.ir",
+              "shadmessenger40.iranlms.ir",
+              "shadmessenger23.iranlms.ir",
+          ]
+
+          print("Shad connectivity diagnostic")
+          print("UTC:", datetime.now(timezone.utc).isoformat())
+          context = ssl.create_default_context()
+          results = []
+
+          for host in hosts:
+              print(f"\n=== {host} ===")
+              try:
+                  infos = socket.getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+                  ips = sorted({item[4][0] for item in infos})
+                  print("DNS_OK:", ", ".join(ips))
+              except Exception as exc:
+                  print("DNS_FAIL:", type(exc).__name__, str(exc)[:220])
+                  results.append((host, "DNS_FAIL"))
+                  continue
+
+              tcp_ok = False
+              tls_ok = False
+              last_error = ""
+              for ip in ips[:3]:
+                  raw = None
+                  try:
+                      raw = socket.create_connection((ip, 443), timeout=8)
+                      tcp_ok = True
+                      print("TCP_443_OK:", ip)
+                      try:
+                          raw.settimeout(8)
+                          with context.wrap_socket(raw, server_hostname=host) as secured:
+                              tls_ok = True
+                              print("TLS_OK:", secured.version())
+                              break
+                      except Exception as exc:
+                          last_error = f"TLS {type(exc).__name__}: {str(exc)[:180]}"
+                          print("TLS_FAIL:", last_error)
+                  except Exception as exc:
+                      last_error = f"TCP {type(exc).__name__}: {str(exc)[:180]}"
+                      print("TCP_FAIL:", ip, last_error)
+                  finally:
+                      if raw is not None:
+                          try:
+                              raw.close()
+                          except Exception:
+                              pass
+
+              if tls_ok:
+                  results.append((host, "TLS_OK"))
+              elif tcp_ok:
+                  results.append((host, "TCP_OK_TLS_FAIL"))
+              else:
+                  results.append((host, "DNS_OK_TCP_FAIL"))
+
+          print("\n=== SUMMARY ===")
+          for host, status in results:
+              print(f"{status}: {host}")
+          print("\nDiagnostic finished. No Shad credentials or session files were used.")
+          PY
